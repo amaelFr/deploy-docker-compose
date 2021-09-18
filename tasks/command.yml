@@ -1,5 +1,5 @@
 - name: execute local command
-  environment: "{{ command_environment|d({}) | combine((item['specific_command_environment']|d({})) if item is mapping else {}) }}"
+  environment: "{{ general_environment_modified|d({}) | combine((item['specific_command_environment']|d({})) if item is mapping else {}) }}"
   command: "{{ item['command'] if item is mapping else item }}"
   args:
     chdir: ~/docker-stack-{{name}}

@@ -1,0 +1,26 @@
+---
+- name: Check if docker is installed
+  shell: command -v docker >/dev/null && command -v docker-compose >/dev/null
+  register: docker_install
+  changed_when: false
+  failed_when: false
+
+- debug:
+    var: docker_install
+
+- name: Check if podman is installed
+  shell: command -v podman >/dev/null && command -v podman-compose >/dev/null
+  register: podman_install
+  changed_when: false
+  failed_when: false
+
+- debug:
+    var: podman_install
+
+- name: Fail no container runtime installed
+  when: docker_install.rc and podman_install.rc
+  fail:
+    msg: No container runtime installed on the host
+
+- set_fact:
+    container_command: "{{ 'docker' if podman_install.rc else 'podman' }}"

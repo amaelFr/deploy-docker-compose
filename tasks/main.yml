@@ -27,94 +27,94 @@
 #           - ls
 #         command_down:
 #         command_clean:
-#         command_environment:
+#         use_runtime_user_socket: true
+#         general_environment:
+#           DOCKER_HOST: unix:///run/user/280/docker.sock
+#         environment:
 #           envvar: value
 #           envvar1: value
-
-- name: Install docker-compose
-  become: true
-  block:
-    - name: Install dependencies
-      apt:
-        name:
-          - "{{ ansible_python_interpreter|d('python')|basename }}"
-          - "{{ ansible_python_interpreter|d('python')|basename }}-pip"
-          - "{{ ansible_python_interpreter|d('python')|basename }}-setuptools"
-        state: latest
-        update_cache: True
-    - name: Install docker-compose package
-      pip:
-        name: docker-compose
-        state: latest
-        executable: "pip{{ ansible_python_interpreter|d('')|basename| replace('python','')}}"
-  when: ansible_facts['os_family'] == "Debian"
 
 - name: Error if windows OS
   when: ansible_facts['os_family'] == 'Windows'
   fail:
     msg: "Error the following role will only work for non windows system"
 
-- name: "adding existing user {{ ansible_user }} to group docker"
-  become: true
-  user:
-    name: "{{ ansible_user }}"
-    groups: docker
-    append: yes
+
+
+- name: Error some vars have wrong type must be mapping {}
+  when: general_environment is defined and general_environment is not mapping
+  fail:
+    msg: "Error some variable enter are not mapping: environment"
+
+
+- environment: "{{ general_environment_modified }}"
+  set_fact:
+    general_environment_modified: "{{ general_environment }}"
+  when: "'PATH' in general_environment"
+- set_fact:
+    general_environment_modified: "{{ general_environment|combine( { 'PATH': '/usr/local/bin:/usr/bin:/bin' } )}}"
+  when: "'PATH' not in general_environment"
+
+
+- environment: "{{ general_environment_modified }}"
+  become: "{{ true if runtime_user|d(false) else omit }}"
+  become_user: "{{ runtime_user|d(omit) }}"
+  import_tasks: get_compose_command.yml
 
 # Check and set variables
-- import_tasks: vars.yml
+- import_tasks: vars_check.yml
 
-- name: Copy docker-compose files
-  copy:
-    src: "{{src}}"
-    dest: ~/docker-stack-{{name}}
-    mode: 0750
 
-# Command instruction with same environment variables
-- name: Instruction inside same environment
-  environment: "{{ command_environment|d({}) }}"
+- environment: "{{ general_environment_modified }}"
+  become: "{{ true if runtime_user|d(false) else omit }}"
+  become_user: "{{ runtime_user|d(omit) }}"
   block:
-    - name: Delete last stack
+
+    - import_tasks: get_files.yml
+
+    # Command instruction with same environment variables
+    - name: Instruction inside same environment
       block:
-        - name: "{{ command_down|d('docker-compose -p '+name+' '+files+' down --remove-orphans --volumes #--rmi all') }}"
-          # command: "{{ command_down|d('docker-compose -p '+name+' '+files+' down --remove-orphans --volumes') }}"
-          command: "{{ command_down|d('docker-compose -p '+name+' '+files+' down --remove-orphans --volumes --rmi all') }}"
+        - name: Delete last stack
+          block:
+            - name: "{{ command_down|d(container_command+'-compose -p '+name+' '+files+' down --remove-orphans --volumes #--rmi all') }}"
+              # command: "{{ command_down|d(container_command+'-compose -p '+name+' '+files+' down --remove-orphans --volumes') }}"
+              command: "{{ command_down|d(container_command+'-compose -p '+name+' '+files+' down --remove-orphans --volumes --rmi all') }}"
+              args:
+                chdir: ~/container-stack-{{name}}
+            - name: "{{ command_clean|d(container_command+'-compose -p '+name+' '+files+' rm -f -v') }}"
+              command: "{{ command_clean|d(container_command+'-compose -p '+name+' '+files+' rm -f -v') }}"
+              args:
+                chdir: ~/container-stack-{{name}}
+          when: down_stack|d(True)
+        - name: "Command before build stack: {{ item }}"
+          command: "{{ item }}"
           args:
-            chdir: ~/docker-stack-{{name}}
-        - name: "{{ command_clean|d('docker-compose -p '+name+' '+files+' rm -f -v') }}"
-          command: "{{ command_clean|d('docker-compose -p '+name+' '+files+' rm -f -v') }}"
+            chdir: ~/container-stack-{{name}}
+          loop: "{{ command_before_build }}"
+
+        - name: "Build stack: {{ command_on_build|join(' && ') }}"
+          command: "{{ command_on_build|join(' && ') }}"
           args:
-            chdir: ~/docker-stack-{{name}}
-      when: down_stack|d(True)
+            chdir: ~/container-stack-{{name}}
 
-    - name: "Command before build stack: {{ item }}"
-      command: "{{ item }}"
-      args:
-        chdir: ~/docker-stack-{{name}}
-      loop: "{{ command_before_build }}"
+        - name: "Command before start stack: {{ item }}"
+          command: "{{ item }}"
+          args:
+            chdir: ~/container-stack-{{name}}
+          loop: "{{ command_before_start }}"
 
-    - name: "Build stack: {{ command_on_build|join(' && ') }}"
-      command: "{{ command_on_build|join(' && ') }}"
-      args:
-        chdir: ~/docker-stack-{{name}}
+        - name: "Start stack: {{ command_on_start|join(' && ') }}"
+          command: "{{ command_on_start|join(' && ') }}"
+          args:
+            chdir: ~/container-stack-{{name}}
 
-    - name: "Command before start stack: {{ item }}"
-      command: "{{ item }}"
-      args:
-        chdir: ~/docker-stack-{{name}}
-      loop: "{{ command_before_start }}"
+        - name: Command after start stack
+          include_tasks: command.yml
+          loop: "{{ command_after_start }}"
 
-    - name: "Start stack: {{ command_on_start|join(' && ') }}"
-      command: "{{ command_on_start|join(' && ') }}"
-      args:
-        chdir: ~/docker-stack-{{name}}
-
-    - name: Command after start stack
-      include_tasks: command.yml
-      loop: "{{ command_after_start }}"
-
-- name: Clean artifact path
-  file:
-    state: absent
-    path: ~/docker-stack-{{name}}
-  when: remove_artifact|d(False)
+    - name: Clean artifact path
+      file:
+        state: absent
+        path: ~/container-stack-{{name}}
+      when: remove_artifact|d(False)

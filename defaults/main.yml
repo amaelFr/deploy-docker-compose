@@ -1,2 +1,10 @@
 ---
 # defaults file for deploy-docker-compose
+general_environment: {}
+
+files: ""
+command_before_build: []
+command_on_build: []
+command_before_start: []
+command_on_start: []
+command_after_start: []

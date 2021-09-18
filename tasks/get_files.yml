@@ -1,0 +1,15 @@
+---
+- name: Copy compose files from classic storage source
+  copy:
+    src: "{{src}}"
+    dest: ~/container-stack-{{name}}
+    mode: 0700
+  when: not src|regex_search('^https?://.*\.git$')
+
+- name: Get compose from git files
+  ansible.builtin.git:
+    repo: "{{ src }}"
+    dest: ~/container-stack-{{name}}
+    single_branch: yes
+    version: "{{ src_commit|d(src_branch)|d(omit) }}"
+  when: src|regex_search('^https?://.*\.git$')
